@@ -22,7 +22,7 @@ using namespace llvm;
 
 
 namespace {
-    //Plug-in printf 
+//Plug-in printf 
     static Function* printf_prototype(LLVMContext& ctx, Module *mod) {
         std::vector<Type*> printf_arg_types;
         printf_arg_types.push_back(Type::getInt8PtrTy(ctx));
@@ -47,7 +47,6 @@ namespace {
             int id;
         };
     
-        //vector<vector<int>> dominatorSet;
     //Loop Detect Definition
         vector<int> depthFirstOrdering;
         class Edge{
@@ -56,15 +55,11 @@ namespace {
             MyBasicBlock u;
             MyBasicBlock v;
         };
-
-    //Count Frequency of BasicBlock, Control Flow Edge and Loop
         
 //Hack Code Definition
         Module *MM;
         LLVMContext *Context;
-        // vector<GlobalVariable*> bbCounter;
-        // GlobalVariable *BasicBlockPrintfFormatStr = NULL;
-        Function *printf_func = NULL;
+        //Used to store output information, which will be inserted at the end of main function
         class BasicOutputFormat{
         public:
         	GlobalVariable *counter;
@@ -72,65 +67,62 @@ namespace {
         	string name;
         	Function *printf_func;
         	Constant *format_const;
+            void MessageGenerate(string s, Module *MM, LLVMContext *Context){
+                this->name = s;
+                this->counter = new GlobalVariable(*MM, Type::getInt32Ty(*Context), false, GlobalValue::InternalLinkage, ConstantInt::get(Type::getInt32Ty(*Context), 0), this->name.c_str());
+                this->format_const = ConstantDataArray::getString(*Context, this->name);
+                this->printer = new GlobalVariable(*MM, llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), this->name.length() + 1), true, llvm::GlobalValue::PrivateLinkage, this->format_const, "BasicBlockPrintfFormatStr");
+                this->printf_func = printf_prototype(*Context, MM);
+                // return x;
+            }
         };
-    //BasicBloce Profiling
+    //BasicBloce Profiling Declare
         class BasicBlockProfile: public BasicOutputFormat{
         public:
             MyBasicBlock mbb;
         };
-        // vector<BasicBlockProfile> basicBlockProfile;
-        // BasicBlockProfile outputBlockProfile;
-    //Edge profiling
+    //Edge profiling Declare
         class MyEdgeBlock: public BasicOutputFormat{
         public:
             Edge edge;
             //New insert block
             BasicBlock *newBB;
         };
-        // vector<MyEdgeBlock> edgeProfile;
-        // MyEdgeBlock outputEdgeBlockProfile;
-    //Loop profile
-        // vector<vector<MyBasicBlock>> loopBlocks;
-        // vector<MyEdgeBlock> loopProfile;
+
     //Function Level Profile
         class FunctionProfile{
         public:
             int idCounter;
-            //BasicBlock||Domination Used Definition
+        //Used in "Example Instrumentation Output"
+            //BasicBlock || Domination Used Definition
             vector<MyBasicBlock> bbVector;
             vector<vector<MyBasicBlock>> dominatorSet;  //All notes that domination
 
+        //Used in "Example Output of Profiled Program"
+            //BasicBloce Profiling Definition
             vector<BasicBlockProfile> basicBlockProfile;
+
+            //Edge Profile
             vector<MyEdgeBlock> edgeProfile;
+
+            //Loop profile 
             vector<vector<MyBasicBlock>> loopBlocks;
             vector<MyEdgeBlock> loopProfile;
             vector<Edge> backEdge;    
             vector<Edge> allEdge;
 
-            // vector<int> bbCount;
+            //Instructions
+            //Most of the functions below should be as the function member of FunctionProfile. 
+            //However, I have another due =_=
         };
-        // vector<FunctionProfile> fP;
+        //Record all functions
         vector<Function*> functionSet;
+        //Get detail of each functions
         unordered_map<Function*, FunctionProfile> fP;
 
 
         static void MyShow(string s){
             errs() << "\n------" << s << "------\n";
-        }
-
-//Test, get pred matrix
-        void ShowPredList(FunctionProfile &tFP)
-        {
-        	for(int i = 0; i < (int)tFP.bbVector.size(); ++i)
-	        {
-	            errs() << "id-" << i << ": ";
-	            for (auto j = pred_begin(tFP.bbVector[i].bb); j != pred_end(tFP.bbVector[i].bb); ++j)
-        	    {
-	                BasicBlock *bb = *j;
-        	        errs() << GetId(bb, tFP) << " ";
-        	    }
-        	    errs() <<"\n";
-        	}
         }
 
 //GetDepthFirstVisitOrdering(); 
@@ -139,8 +131,6 @@ namespace {
         {
             visitOrdering.push_back(cur.id);
             mark[cur.id] = true;
-            //MyShow("currentID");
-            //errs() << cur.id << "\n";
             for(auto it = succ_begin(cur.bb); it != succ_end(cur.bb); it++)
             {    
                 MyBasicBlock next = MyBasicBlock((BasicBlock*)*it, GetId((BasicBlock*)*it, tFP));
@@ -176,7 +166,6 @@ namespace {
                 {
                     BasicBlock *bbb = *it;
                     tFP.allEdge.push_back(Edge(tFP.bbVector[i], MyBasicBlock(bbb, GetId(bbb, tFP))));
-                    //errs() << "Block " << bbVector[i].id << " to " << GetId(bbb) << "\n";
                 }
             }
         }
@@ -186,13 +175,8 @@ namespace {
         {
             vector<Edge> temp;
             for(auto &edge : tFP.allEdge)
-            {
                 if(depthFirstOrdering[edge.u.id] > depthFirstOrdering[edge.v.id])
-                {
-                    //errs() << "Discover back edge: " << edge.u.id << " -> " << edge.v.id << "\n"; 
                     temp.push_back(edge);
-                }   
-            }
             return temp;
         }
 //GetLoop
@@ -201,14 +185,11 @@ namespace {
         {
             bool flag = true;
             for(auto id:loop)
-            {
                 if(id == m.id)
                 {
                     flag = false;
                     break;
                 }
-            }
-
             if(flag){
                 loop.push_back(m.id);
                 s.push(m);
@@ -269,11 +250,12 @@ namespace {
             for(auto mbb : tFP.bbVector)
             {
                 if (mbb.bb == b){
-                    //errs() << "find id" << mbb.id << "\n";
                     return mbb.id;
                 }
             }
             //errs() << "cannot find correct id !\n";
+            //A small midstake which should be repaired.
+            //Mistake: This should be an error message. However, for those new created blocked, they don't have id and they don't stored in any profile either. 
             return -1;
         }
 
@@ -289,11 +271,8 @@ namespace {
             bool flag = true;
             for (auto next = pred_begin(cur.bb); flag && next != pred_end(cur.bb); next++)
             {
-                //errs() << "inverse dfs search begin\n";
                 BasicBlock *bbb = *next;
                 int next_id = GetId(bbb, tFP);
-                // if(next_id >= p.id)
-                    // continue;
                 if(mark[next_id])	continue;
                 else mark[next_id] = 1;
 
@@ -302,22 +281,9 @@ namespace {
             return flag;
         }
 
-        BasicOutputFormat MessageGenerate(string s){
-        	BasicOutputFormat x;
-            // MyShow("00");
-        	x.name = s;
-            x.counter = new GlobalVariable(*MM, Type::getInt32Ty(*Context), false, GlobalValue::InternalLinkage, ConstantInt::get(Type::getInt32Ty(*Context), 0), x.name.c_str());
-            // MyShow("01");
-            x.format_const = ConstantDataArray::getString(*Context, x.name);
-            x.printer = new GlobalVariable(*MM, llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), x.name.length() + 1), true, llvm::GlobalValue::PrivateLinkage, x.format_const, "BasicBlockPrintfFormatStr");
-            x.printf_func = printf_prototype(*Context, MM);
-            // MyShow("02");
-            return x;
-        }
-
+//Output BasicBlock information
         void ShowBasicBlock(Function &func, FunctionProfile &tFP)
         {
-            //Output BasicBlock information
             for(auto &bb : func)
             {
                 int id = GetId(&bb, tFP);
@@ -344,17 +310,14 @@ namespace {
 
 //----------------------------------
         bool doInitialization(Module &M) {
-            //MyShow("doInitialization begin");
-            //MyShow("BasicBlock Information");
-            MM = &M;
-            // int tempcounter = 0;
+            MM = &M;//Store Module Information
+            Context = &M.getContext();
             for(auto &func : M)
             {
-                // MyShow(to_string(tempcounter++));
                 functionSet.push_back(&func);
                 FunctionProfile tFP;
                 tFP.idCounter = 0;
-                //if(func.getName() != "main")
+
                 errs() << "\nFunction " <<func.getName()<<" \n";
 //Get Basicblock and give them id
                 for(auto &bb : func)
@@ -362,16 +325,12 @@ namespace {
                     MyBasicBlock temp;
                     temp.id = tFP.idCounter++;
                     temp.bb = &bb;
-                    //errs() << temp.id <<"\n";
                     tFP.bbVector.push_back(temp);
                 }
                 
                 ShowBasicBlock(func, tFP);
 
-                //ShowPredList();
-                //dominatorSet = vector<vector<int>>(bbVector.size(), vector<int>());
                 tFP.dominatorSet = vector<vector<MyBasicBlock>>(tFP.bbVector.size(), vector<MyBasicBlock>());
-                //errs() << "bbVector size" << (int)bbVector.size();
 //Build domination set
 //Get dominator tree
                 for(int i = 0; i < (int)tFP.bbVector.size(); i++)
@@ -379,10 +338,7 @@ namespace {
                         bool mark[tFP.bbVector.size()];
                         memset(mark, 0, sizeof(mark));
                         if(DDfs(tFP.bbVector[i], tFP.bbVector[j], mark, tFP))
-                        {
                             tFP.dominatorSet[i].push_back(tFP.bbVector[j]);
-                            //errs() << "i = " << i << " is dominated by j = " << j << "\n";
-                        }
                     }
 //Output domination tree information
                 if(func.getName().equals("main") == false)
@@ -402,17 +358,12 @@ namespace {
                 if(func.getName().equals("main") == false){
                     bool mark[tFP.bbVector.size()];
                     memset(mark, 0, sizeof(mark));
-                    //MyShow("GetDepthFirstVisitOrdering");
                     GetDepthFirstVisitOrdering(tFP.bbVector[0], mark, tFP);
-                    //MyShow("GetDepthFirstOrdering");
                     GetDepthFirstOrdering(tFP);
-                    //MyShow("GetALLCFGEdge");
                     GetAllCFGEdge(tFP);
     //Find back edge
-                    //MyShow("FindBackEdge");
                     tFP.backEdge = FindBackEdge(tFP);
     //Get loop
-                    //MyShow("GetLoop");
                     GetLoop(tFP);
                 }       
                 //Add current function profile to allFunctionProfile vector
@@ -425,18 +376,12 @@ namespace {
                 FunctionProfile &tFP = fP.at(func);
     //Hack code initialization
         //Initial Global Variable
-                Context = &M.getContext();
-                //bbCounter = vector<GlobalVariable*> (bbVector.size(), NULL);
                 tFP.basicBlockProfile = vector<BasicBlockProfile>(tFP.bbVector.size());
                 int tempCounter = 0;
                 for(auto &bbp : tFP.basicBlockProfile)
                 {
                     bbp.mbb = tFP.bbVector[tempCounter++];
-                    bbp.name = "b" + to_string(bbp.mbb.id) + ": %d  \n";
-                    bbp.format_const = ConstantDataArray::getString(*Context, bbp.name);
-                    bbp.counter = new GlobalVariable(M, Type::getInt32Ty(*Context), false,GlobalValue::InternalLinkage, ConstantInt::get(Type::getInt32Ty(*Context), 0), bbp.name.c_str());
-                    bbp.printer = new GlobalVariable(M, llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), bbp.name.length() + 1), true, llvm::GlobalValue::PrivateLinkage, bbp.format_const, "BasicBlockPrintfFormatStr");
-                    bbp.printf_func = printf_prototype(*Context, &M);
+                    bbp.MessageGenerate(string("b" + to_string(bbp.mbb.id) + ": %d  \n"), MM, Context);
                 }
                        
     //CFG edge profiling initialize 
@@ -444,26 +389,17 @@ namespace {
                 for(auto &edge : tFP.allEdge)
                 {
                     MyEdgeBlock temp;
+                    string ss = to_string(edge.u.id) + " -> " + to_string(edge.v.id) + ": %d\n";
+                    temp.MessageGenerate(ss, MM, Context);
                     temp.edge = edge;
-                    temp.name = "counterOfEdge" + to_string(edge.u.id) + "To" + to_string(edge.v.id);
-                    temp.counter = new GlobalVariable(M, Type::getInt32Ty(*Context), false, GlobalValue::InternalLinkage, ConstantInt::get(Type::getInt32Ty(*Context), 0), temp.name.c_str()); 
-                    string pp = "";
-                    pp = to_string(edge.u.id) + " -> " + to_string(edge.v.id) + ": %d\n";
-                    temp.format_const = ConstantDataArray::getString(*Context, pp.c_str());
-                    temp.printer = new GlobalVariable(M, llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), pp.length()+1), true, llvm::GlobalValue::PrivateLinkage, temp.format_const, "BasicBlockPrintfFormatStr");
-                    temp.printf_func = printf_prototype(*Context, &M);
-
                     tFP.edgeProfile.push_back(temp); 
                 }
                 
                 //Initialize new BB value on each succ of loop entry
                 for(int i = 0; i < tFP.loopBlocks.size(); ++i)
                 {
-                    // MyBasicBlock entry = loopBlocks[i][0];
-                    //MyShow(string("Found loop entry id is :: " + to_string(entry.id)));
                     MyEdgeBlock temp;
-                    string loopIdLink = "";
-                    //MyShow(string("size!!!!!" + to_string(loopBlocks[i].size())));
+                    string loopIdLink = "Loop ";
                     for(int j = 0; j < tFP.loopBlocks[i].size(); ++j)
                     {  
                         MyBasicBlock mbb = tFP.loopBlocks[i][j];
@@ -471,28 +407,17 @@ namespace {
                         loopIdLink += "_";
                     }
                     loopIdLink = loopIdLink.substr(0, loopIdLink.length()-1);
-                    temp.name = "Loop " + loopIdLink; 
-                    temp.counter = new GlobalVariable(M, Type::getInt32Ty(*Context), false, GlobalValue::InternalLinkage, ConstantInt::get(Type::getInt32Ty(*Context), 0), temp.name.c_str());
-                    string pp = "Loop " + loopIdLink + " Count: %d\n";
-                    temp.format_const = ConstantDataArray::getString(*Context, pp.c_str());
-                    temp.printer = new GlobalVariable(M, llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), pp.length()+1), true, llvm::GlobalValue::PrivateLinkage, temp.format_const, "BasicBlockPrintfFormatStr");
-                    temp.printf_func = printf_prototype(*Context, &M);
-                        
+                    loopIdLink += "Count: %d\n";
+                    temp.MessageGenerate(loopIdLink, MM, Context);
+                      
                     tFP.loopProfile.push_back(temp);
                 }
 
             }
-
-            //MyShow("doInitialization end");
             return false;
         }
+        
 
-
-
-
-
-
-        //----------------------------------
         bool doFinalization(Module &M) {
           return false;
         }
@@ -501,6 +426,7 @@ namespace {
 
 
 //Loop Pulg-in Function
+//Figure out whether current edge is the successor of loop's entry
         bool EdgeInLoop(Edge edge, MyEdgeBlock &mEB, Function &F)
         {
             for(int i = 0; i < fP.at(&F).loopBlocks.size(); ++i)
@@ -524,51 +450,41 @@ namespace {
 
         //----------------------------------
         bool runOnFunction(Function &F) override {
-            // string functionName = "Function ";
-            // functionName += F.getName();
-            // MyShow(functionName);
-
-            // bbCount = vector<int>(bbVector.size());
-            // MyShow("1");
             for(auto &BB : F)
             {
                 // Add the footer to Main's BB containing the return 0; statement BEFORE calling runOnBasicBlock
-                if(F.getName().equals("main") && isa<ReturnInst>(BB.getTerminator())) { // major hack?
+                if(F.getName().equals("main") && isa<ReturnInst>(BB.getTerminator())) {
                     for(auto &func : functionSet){
-                        // MyShow("11");
+                        //Insert output information of each functions except main-function
                         if(func->getName() == "main") continue;
+                        //Count the frequence of Loop by insert code into edges that belongs to the successors of each loop's entry
                         addLoopCount(BB, Context, *func);
-                        // MyShow("22");
+
                         //Output BasicBlock Profiling after running the program
-                        BasicOutputFormat x = MessageGenerate("\nBasic Block Profiling\n");
+                        BasicOutputFormat x;
+                        x.MessageGenerate("\nBasic Block Profiling\n", MM, Context);
                         addFinalPrintf(BB, Context, x.counter, x.printer, x.printf_func);
-                        // MyShow("33");
-                        // string temp = func->getName();
-                        // temp += "size of basicBlockProfile: " + to_string(fP.at(func).basicBlockProfile.size());
-                        // MyShow(temp);
                         for(int i = 0; i < fP.at(func).basicBlockProfile.size(); ++i)
                             addFinalPrintf(BB, Context, fP.at(func).basicBlockProfile[i].counter, fP.at(func).basicBlockProfile[i].printer, fP.at(func).basicBlockProfile[i].printf_func);
-                        // MyShow("44");
+
                         //Output Edge Profiling after running the program
-                        x = MessageGenerate("\nEdge Profiling\n");
+                        x.MessageGenerate("\nEdge Profiling\n", MM, Context);
                         addFinalPrintf(BB, Context, x.counter, x.printer, x.printf_func);
                         for(int i = 0; i < fP.at(func).edgeProfile.size(); ++i)
                             addFinalPrintf(BB, Context, fP.at(func).edgeProfile[i].counter, fP.at(func).edgeProfile[i].printer, fP.at(func).edgeProfile[i].printf_func);
-                        // MyShow("55");
+
                         //Output Loop Profiling after running the program
-                        x = MessageGenerate("\nLoop Profiling\n");
+                        x.MessageGenerate("\nLoop Profiling\n", MM, Context);
                         addFinalPrintf(BB, Context, x.counter, x.printer, x.printf_func);
                         for(int i = 0; i < fP.at(func).loopProfile.size(); ++i)
                             addFinalPrintf(BB, Context, fP.at(func).loopProfile[i].counter, fP.at(func).loopProfile[i].printer, fP.at(func).loopProfile[i].printf_func);
-                        // MyShow("66");
                     }
                 }
             }
-            // MyShow("2");
-//BasicBlcok instructions add
+            
+//BasicBlcok instructions add (hack code)
             runOnBasicBlock(F);
-//CFG edge profiling
-            // MyShow("3");
+//Insert edge profiling hack code
             if(F.getName().equals("main") == false){
                 for(auto &eB : fP.at(&F).edgeProfile)
                 {
@@ -589,10 +505,10 @@ namespace {
                     idx = 0;
                 }
             }   
-            // MyShow("4");
             return true;
         }
 
+//BasicBlcok instructions add (hack code)
         bool runOnBasicBlock(Function &F) {
             if(F.getName() != "main")
                 for(int i = 0; i < fP.at(&F).basicBlockProfile.size(); ++i){
@@ -626,10 +542,8 @@ namespace {
             for(auto &eP : fP.at(&F).edgeProfile)
             {
                 MyEdgeBlock mEB;
-                //MyShow("Find Match Edge in Loop");
                 if(EdgeInLoop(eP.edge, mEB, F))
                 {
-                    //MyShow("create loop value store");
                     Value *loadAddr = builder.CreateLoad(eP.counter);
                     Value *tLoadAddr = builder.CreateLoad(mEB.counter);
                     Value *tAddAddr = builder.CreateAdd(tLoadAddr, loadAddr);
